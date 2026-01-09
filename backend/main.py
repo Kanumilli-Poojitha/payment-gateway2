@@ -1,9 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from routers import health
 from routers import merchants, orders, public_orders
 from routers import payment, public_payments
 from routers import test
+
 
 # --------------------------------
 # APP INIT
@@ -30,6 +32,7 @@ app.add_middleware(
 # --------------------------------
 # ROUTERS
 # --------------------------------
+app.include_router(health.router, prefix="/api/v1", tags=["health"])
 app.include_router(merchants.router, prefix="/api/v1")
 app.include_router(orders.router, prefix="/api/v1")
 app.include_router(public_orders.router, prefix="/api/v1")
