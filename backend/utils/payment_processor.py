@@ -1,107 +1,104 @@
 import time
 import random
 import os
-from datetime import datetime
+import json
+import redis
 from sqlalchemy.orm import Session
 
-from models import Payment, Order, Merchant
+from models import Payment, Order
+from utils.errors import not_found, bad_request
+from utils import generate_id
 
+# -----------------------------
+# Config
+# -----------------------------
 DEFAULT_TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
-TEST_PROCESSING_DELAY = int(os.getenv("TEST_PROCESSING_DELAY", "500"))
+TEST_PROCESSING_DELAY_MS = int(os.getenv("TEST_PROCESSING_DELAY", "500"))
 
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379")
+WEBHOOK_QUEUE = os.getenv("WEBHOOK_QUEUE", "gateway_webhooks")
 
-def detect_card_network(card_number: str) -> str:
-    if card_number.startswith("4"):
-        return "visa"
-    if card_number.startswith(("51", "52", "53", "54", "55")):
-        return "mastercard"
-    if card_number.startswith(("34", "37")):
-        return "amex"
-    return "unknown"
+redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
-
+# =====================================================
+# ✅ API-SIDE FUNCTION (required for imports)
+# =====================================================
 def process_payment(
-    *,
     db: Session,
     payload: dict,
-    merchant: Merchant | None = None,
+    merchant=None,
     is_public: bool = False,
-) -> Payment:
-    order_id = payload.get("order_id")
-    method = payload.get("method")
-    test_mode = payload.get("test_mode", DEFAULT_TEST_MODE)
+    idempotency_key: str | None = None,
+):
+    """
+    Creates a payment record ONLY.
+    Actual processing happens in async worker.
+    """
 
-    # -------------------------
-    # BASIC VALIDATION
-    # -------------------------
-    if not order_id:
-        raise ValueError("order_id is required")
-
-    if method not in ("upi", "card"):
-        raise ValueError("Unsupported payment method")
-
-    if method == "upi" and not payload.get("vpa"):
-        raise ValueError("vpa is required for UPI payments")
-
-    if method == "card" and not payload.get("card"):
-        raise ValueError("card details are required for card payments")
-
-    # -------------------------
-    # FETCH ORDER
-    # -------------------------
-    order = db.query(Order).filter(Order.id == order_id).first()
+    order = db.query(Order).filter(Order.id == payload["order_id"]).first()
     if not order:
-        raise ValueError("Order not found")
+        not_found("Order not found")
 
-    # -------------------------
-    # RESOLVE MERCHANT
-    # -------------------------
-    if is_public:
-        merchant = db.query(Merchant).filter(
-            Merchant.id == order.merchant_id
-        ).first()
-        if not merchant:
-            raise ValueError("Merchant not found")
-    else:
-        if not merchant:
-            raise ValueError("Merchant authentication required")
-        if order.merchant_id != merchant.id:
-            raise ValueError("Order does not belong to merchant")
-
-    # -------------------------
-    # PROCESS PAYMENT
-    # -------------------------
-    if test_mode:
-        time.sleep(TEST_PROCESSING_DELAY / 1000)
-        success = True
-        prefix = "test_"
-    else:
-        prefix = "pay_"
-        success = random.random() < (0.95 if method == "upi" else 0.9)
-
-    card = payload.get("card")
+    if order.status.lower() == "paid":
+        bad_request("Order already paid")
 
     payment = Payment(
-        id=f"{prefix}{order.id}_{int(time.time() * 1000)}",
+        id=generate_id("pay_"),
         order_id=order.id,
-        merchant_id=merchant.id,
+        merchant_id=merchant.id if merchant else None,
         amount=order.amount,
         currency=order.currency,
-        method=method,
-        status="success" if success else "failed",
-        vpa=payload.get("vpa") if method == "upi" else None,
-        card_network=detect_card_network(card["number"]) if card else None,
-        card_last4=card["number"][-4:] if card else None,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        method=payload.get("method"),
+        status="CREATED",
+        vpa=payload.get("vpa"),
+        idempotency_key=idempotency_key,
     )
-
-    if not success:
-        payment.error_code = "PAYMENT_FAILED"
-        payment.error_description = "Payment authorization failed"
 
     db.add(payment)
     db.commit()
     db.refresh(payment)
 
     return payment
+
+
+# =====================================================
+# ✅ WORKER-SIDE FUNCTION (async processor)
+# =====================================================
+def process_payment_job(db: Session, payment_id: str):
+    payment = db.query(Payment).filter(Payment.id == payment_id).first()
+    if not payment:
+        raise ValueError(f"Payment {payment_id} not found")
+
+    order = db.query(Order).filter(Order.id == payment.order_id).first()
+    if not order:
+        raise ValueError("Order not found")
+
+    # simulate async delay
+    time.sleep(TEST_PROCESSING_DELAY_MS / 1000)
+
+    success = True if DEFAULT_TEST_MODE else random.random() < 0.95
+
+    if success:
+        payment.status = "SUCCESS"
+        order.status = "PAID"
+    else:
+        payment.status = "FAILED"
+        payment.error_code = "PAYMENT_FAILED"
+        payment.error_description = "Authorization failed"
+        order.status = "FAILED"
+
+    db.commit()
+
+
+    # enqueue webhook AFTER final state
+    job = {
+        "payment_id": payment.id,
+        "event_type": f"payment.{payment.status.lower()}",
+        "amount": payment.amount,
+        "currency": payment.currency,
+        "method": payment.method,
+        "order_id": payment.order_id,
+        "merchant_id": payment.merchant_id,
+    }
+
+    redis_client.rpush(WEBHOOK_QUEUE, json.dumps(job))
