@@ -1,21 +1,13 @@
-// src/pages/Checkout.jsx
 import { useEffect, useState } from "react";
 import axios from "axios";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
-const STATUS = {
-  IDLE: "idle",
-  PROCESSING: "processing",
-  SUCCESS: "success",
-  FAILED: "failed",
-};
+const STATUS = { IDLE: "IDLE", PROCESSING: "PROCESSING", SUCCESS: "SUCCESS", FAILED: "FAILED" };
 
 export default function Checkout() {
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-
   const orderId = searchParams.get("order_id");
 
   const [order, setOrder] = useState(null);
@@ -24,96 +16,61 @@ export default function Checkout() {
   const [paymentId, setPaymentId] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
-  // -------------------------------------------------
-  // STEP 1 — Fetch PUBLIC order ✅
-  // -------------------------------------------------
+  // notify SDK
+  useEffect(() => window.parent.postMessage({ type: "CHECKOUT_READY" }, "*"), []);
+
+  // fetch order
   useEffect(() => {
     if (!orderId) return;
-
-    axios
-      .get(`${API_BASE}/orders/public/${orderId}`)
+    axios.get(`${API_BASE}/orders/public/${orderId}`)
       .then((res) => setOrder(res.data))
-      .catch(() => setStatus(STATUS.FAILED));
+      .catch(() => { setStatus(STATUS.FAILED); setErrorMessage("Invalid order"); });
   }, [orderId]);
 
-  // -------------------------------------------------
-  // STEP 3 — Poll PUBLIC payment status ✅
-  // -------------------------------------------------
+  // poll payment
   useEffect(() => {
     if (!paymentId || status !== STATUS.PROCESSING) return;
-
-    const interval = setInterval(() => {
-      axios
-        .get(`${API_BASE}/payments/public/${paymentId}`)
-        .then((res) => {
-          if (res.data.status === "success") {
-            setStatus(STATUS.SUCCESS);
-            clearInterval(interval);
-            navigate("/success");
-          }
-
-          if (res.data.status === "failed") {
-            setErrorMessage(
-              res.data.error_description || "Payment failed"
-            );
-            setStatus(STATUS.FAILED);
-            clearInterval(interval);
-            navigate("/failure");
-          }
-        })
-        .catch(() => {
-          setStatus(STATUS.FAILED);
+    const interval = setInterval(async () => {
+      try {
+        const res = await axios.get(`${API_BASE}/payments/public/${paymentId}`);
+        if (res.data.status === "SUCCESS") {
+          setStatus(STATUS.SUCCESS);
+          window.parent.postMessage({ type: "PAYMENT_SUCCESS", payload: res.data }, "*");
           clearInterval(interval);
-          navigate("/failure");
-        });
+        }
+        if (res.data.status === "FAILED") {
+          setStatus(STATUS.FAILED);
+          window.parent.postMessage({ type: "PAYMENT_FAILED", payload: res.data }, "*");
+          clearInterval(interval);
+        }
+      } catch {
+        setStatus(STATUS.FAILED);
+        window.parent.postMessage({ type: "PAYMENT_FAILED" }, "*");
+        clearInterval(interval);
+      }
     }, 2000);
-
     return () => clearInterval(interval);
-  }, [paymentId, status, navigate]);
+  }, [paymentId, status]);
 
-  // -------------------------------------------------
-  // STEP 2 — Create PUBLIC payment ✅
-  // -------------------------------------------------
-  const createPayment = (payload) => {
+  const createPayment = async (payload) => {
     setStatus(STATUS.PROCESSING);
     setErrorMessage("");
-
-    axios
-      .post(`${API_BASE}/payments/public`, payload)
-      .then((res) => {
-        setPaymentId(res.data.id);
-      })
-      .catch((err) => {
-        setErrorMessage(
-          err.response?.data?.error?.description || "Payment failed"
-        );
-        setStatus(STATUS.FAILED);
-        navigate("/failure");
-      });
+    try {
+      const res = await axios.post(`${API_BASE}/payments/public`, payload);
+      setPaymentId(res.data.id); // ✅ use payment id for polling
+    } catch {
+      setStatus(STATUS.FAILED);
+      setErrorMessage("Payment failed");
+      window.parent.postMessage({ type: "PAYMENT_FAILED" }, "*");
+    }
   };
 
-  if (!order) return <div>Loading...</div>;
+  if (!order) return <div>Loading checkout...</div>;
 
   return (
     <div data-test-id="checkout-container">
-      {/* Order Summary */}
-      <div data-test-id="order-summary">
-        <h2>Complete Payment</h2>
+      <h3 data-test-id="order-amount">Pay ₹{(order.amount / 100).toFixed(2)}</h3>
 
-        <div>
-          <span>Amount: </span>
-          <span data-test-id="order-amount">
-            ₹{(order.amount / 100).toFixed(2)}
-          </span>
-        </div>
-
-        <div>
-          <span>Order ID: </span>
-          <span data-test-id="order-id">{order.id}</span>
-        </div>
-      </div>
-
-      {/* Payment Method Selection */}
       {status === STATUS.IDLE && (
         <>
           <div data-test-id="payment-methods">
@@ -121,68 +78,24 @@ export default function Checkout() {
             <button onClick={() => setMethod("card")}>Card</button>
           </div>
 
-          {/* UPI */}
           {method === "upi" && (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                createPayment({
-                  order_id: order.id,
-                  method: "upi",
-                  vpa: e.target.vpa.value,
-                });
-              }}
-            >
-              <input
-                name="vpa"
-                placeholder="username@bank"
-                required
-              />
+            <form onSubmit={(e) => { e.preventDefault(); createPayment({ order_id: order.id, method: "upi", vpa: e.target.vpa.value }); }}>
+              <input name="vpa" placeholder="user@bank" required />
               <button type="submit">Pay</button>
             </form>
           )}
 
-          {/* Card */}
           {method === "card" && (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                createPayment({
-                  order_id: order.id,
-                  method: "card",
-                  card: {
-                    number: e.target.cardNumber.value,
-                    expiry_month: 12,
-                    expiry_year: 2030,
-                    cvv: "123",
-                  },
-                });
-              }}
-            >
-              <input
-                name="cardNumber"
-                placeholder="4111111111111111"
-                required
-              />
+            <form onSubmit={(e) => { e.preventDefault(); createPayment({ order_id: order.id, method: "card", card: { number: e.target.cardNumber.value, expiry_month: 12, expiry_year: 2030, cvv: "123" } }); }}>
+              <input name="cardNumber" required />
               <button type="submit">Pay</button>
             </form>
           )}
         </>
       )}
 
-      {/* Processing */}
-      {status === STATUS.PROCESSING && (
-        <div data-test-id="processing-state">
-          <span>Processing payment...</span>
-        </div>
-      )}
-
-      {/* Error */}
-      {status === STATUS.FAILED && (
-        <div data-test-id="error-state">
-          {errorMessage || "Something went wrong"}
-        </div>
-      )}
+      {status === STATUS.PROCESSING && <p data-test-id="processing-state">Processing payment...</p>}
+      {status === STATUS.FAILED && <p data-test-id="error-state">{errorMessage}</p>}
     </div>
   );
 }
