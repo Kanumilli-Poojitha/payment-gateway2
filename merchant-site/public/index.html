@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Demo Merchant</title>
+  </head>
+  <body>
+    <h2>Demo Merchant Store</h2>
+    <button id="pay-btn">Pay ₹500</button>
+
+    <!-- SDK -->
+    <script src="./gateway.js"></script>
+
+    <script>
+      document.getElementById("pay-btn").onclick = () => {
+        GatewayCheckout.open({
+          amount: 50000, // ₹500 in paise
+          currency: "INR",
+          onSuccess: (payment) => {
+            alert("Payment success: " + payment.id);
+          },
+          onFailure: (err) => {
+            alert("Payment failed");
+          },
+          onClose: () => {
+            console.log("Checkout closed");
+          },
+        });
+      };
+    </script>
+  </body>
+</html>
