@@ -1,282 +1,331 @@
-Payment Gateway – Multi-Method Processing with Hosted Checkout
+Build Production-Ready Payment Gateway with Async Processing and Webhooks
 
-A fully containerized payment gateway system inspired by Razorpay/Stripe, supporting merchant onboarding, order management, UPI & Card payments, and a hosted checkout page.
-Built to demonstrate real-world fintech concepts like authentication, validation, payment state machines, and end-to-end transaction flows.
+A fully containerized, production-inspired payment gateway system inspired by Razorpay/Stripe.
+Supports merchant onboarding, order management, UPI & Card payments, async processing, refunds,
+webhook delivery with retries & HMAC verification, and an embeddable JavaScript SDK.
 
-Features:
+Built to demonstrate real-world fintech architecture: async workers, job queues, idempotency,
+webhook reliability, and end-to-end payment flows.
 
-* Merchant authentication using API Key & Secret
-* Order creation and management APIs
-* Multi-method payment processing:
-    * UPI (with VPA validation)
-    * Card payments (Luhn validation, network detection, expiry  checks)
-* Deterministic test mode for automated evaluation
-* Hosted Checkout Page for customer payments
-* Merchant Dashboard with transactions & analytics
-* Fully Dockerized – run everything with one command
+------------------------------------------------------------
 
-## Documentation
+🚀 Features
 
-All project documentation is available under:
+• Merchant authentication using API Key & Secret
+• Public & merchant order APIs
+• Multi-method payments:
+  - UPI (VPA validation)
+  - Card payments (network detection, masking)
+• Deterministic test mode for automated evaluation
+• Async payment processing via Redis queues
+• Refund system with async worker
+• Webhook delivery system:
+  - Event-based (payment.success / payment.failed / refund.processed)
+  - HMAC SHA256 signatures
+  - Retry mechanism with DLQ
+• Embeddable JavaScript Checkout SDK
+• Hosted Checkout Page
+• Merchant Dashboard
+• Fully Dockerized (single command startup)
 
-backend/docs/
+------------------------------------------------------------
 
-Includes:
-- API documentation
-- System architecture
-- Database schema
-- Screenshots of dashboard and checkout flows
+🏗️ System Architecture
 
+Dashboard (3000)
+   │
+   │ Auth APIs
+   ▼
+FastAPI Gateway (8000)
+   │
+   ├── Orders
+   ├── Payments
+   ├── Refunds
+   ├── Webhooks
+   ├── Public APIs
+   │
+   ▼
+PostgreSQL (5432)
 
-🏗️ System Architecture:
+Async Workers:
+• Payment Worker
+• Refund Worker
+• Webhook Worker
 
-┌──────────────┐
-│  Dashboard   │  (Port 3000)
-└──────┬───────┘
-       │
-       │ Authenticated APIs
-       ▼
-┌──────────────┐
-│   API        │  FastAPI (Port 8000)
-│              │
-│  Orders      │
-│  Payments    │
-│  Merchants   │
-│  Public APIs │
-└──────┬───────┘
-       │
-       ▼
-┌──────────────┐
-│ PostgreSQL   │  (Port 5432)
-└──────────────┘
+Redis (6379)
+• Payment queue
+• Webhook queue
+• Dead-letter queue
 
-┌──────────────┐
-│ Checkout     │  (Port 3001)
-│ Hosted Page  │
-└──────────────┘
+Checkout Page (3001)
+Embeddable SDK (gateway.js)
 
-📁 Project Structure:
+------------------------------------------------------------
+
+📁 Project Structure
 
 payment-gateway/
 ├── docker-compose.yml
 ├── README.md
-├── .env.example
+├── submission.yml
 ├── backend/
-│   ├── Dockerfile
 │   ├── app/
 │   │   ├── main.py
 │   │   ├── routers/
 │   │   ├── models/
-│   │   ├── services/
-│   │   └── utils/
+│   │   ├── workers/
+│   │   ├── utils/
 ├── frontend/
-│   ├── Dockerfile
-│   └── src/
-└── checkout-page/
-    ├── Dockerfile
-    └── src/
+│   ├── sdk/
+│   │   └── gateway.js
+│   └── dashboard/
+├── checkout-page/
 
-🐳 Docker Setup (One-Command Run):
-Start all services
+------------------------------------------------------------
+
+🐳 Docker Setup
+
+Start all services:
 
 docker-compose up -d
 
-Services & Ports:
+Ports:
 
-| Service   | URL / Port                                     |
-| --------- | ---------------------------------------------- |
-| API       | [http://localhost:8000](http://localhost:8000) |
-| Dashboard | [http://localhost:3000](http://localhost:3000) |
-| Checkout  | [http://localhost:3001](http://localhost:3001) |
-| Database  | localhost:5432                                 |
-
+| Service          | Port |
+|------------------|------|
+| API              | 8000 |
+| Dashboard        | 3000 |
+| Checkout Page    | 3001 |
+| Redis            | 6379 |
+| PostgreSQL       | 5432 |                             |
 
 All services start automatically with correct dependency ordering.
 
-🔐 Test Merchant (Auto-Seeded):
+------------------------------------------------------------
 
-A test merchant is automatically created on startup.
+🔐 Test Merchant (Auto-Seeded)
 
-| Field       | Value                                  |
-| ----------- | -------------------------------------- |
-| Merchant ID | `550e8400-e29b-41d4-a716-446655440000` |
-| Email       | `test@example.com`                     |
-| API Key     | `key_test_abc123`                      |
-| API Secret  | `secret_test_xyz789`                   |
+| Field        | Value |
+|-------------|-------|
+| Merchant ID | test_merchant |
+| API Key     | key_test_abc123 |
+| API Secret  | secret_test_xyz789 |
 
---------------------------------------------------------------
+------------------------------------------------------------
 
-❤️ Health Check:
+📦 API Overview
+
+Health  
 GET /health
 
-{
-  "status": "healthy",
-  "database": "connected",
-  "timestamp": "2026-01-09T04:30:00Z"
-}
-
-📦 Orders API:
-Create Order
-POST /api/v1/orders
-
-
-Headers
-
-X-Api-Key: key_test_abc123
-X-Api-Secret: secret_test_xyz789
-
-
-Body
-
-{
-  "amount": 50000,
-  "currency": "INR",
-  "receipt": "receipt_001",
-  "notes": {
-    "customer": "John Doe"
-  }
-}
-
-Get Order
+Orders (Merchant)  
+POST /api/v1/orders  
 GET /api/v1/orders/{order_id}
 
-----------------------------------------------------------------
+Payments (Merchant)  
+POST /api/v1/payments  
+GET /api/v1/payments/{payment_id}
 
-💳 Payments API
-Create Payment (UPI)
+Public APIs (No Auth)  
+POST /api/v1/orders/public  
+GET /api/v1/orders/public/{order_id}  
+POST /api/v1/payments/public  
+GET /api/v1/payments/public/{payment_id}
+
+Refunds  
+POST /api/v1/refunds  
+GET /api/v1/refunds/{refund_id}
+
+------------------------------------------------------------
+
+Create Payment (Public / SDK)
+
+POST /api/v1/payments/public
+Headers:
+Idempotency-Key (optional)
+
+UPI:
 {
-  "order_id": "order_xxxxxxxxxxxxxxxx",
+  "order_id": "order_22hJz371jXdn3yaw",
+  "amount": 50000,
+  "currency": "INR",
   "method": "upi",
-  "vpa": "user@paytm"
+  "vpa": "user@upi"
 }
 
-Create Payment (Card)
+Card:
 {
-  "order_id": "order_xxxxxxxxxxxxxxxx",
+  "order_id": "order_22hJz371jXdn3yaw",
+  "amount": 50000,
+  "currency": "INR",
   "method": "card",
   "card": {
     "number": "4111111111111111",
-    "expiry_month": "12",
-    "expiry_year": "2026",
-    "cvv": "123",
-    "holder_name": "John Doe"
+    "expiry_month": 12,
+    "expiry_year": 2030,
+    "cvv": "123"
   }
 }
 
+Response:
+{
+  "id": "pay_XXXX",
+  "order_id": "order_22hJz371jXdn3yaw",
+  "merchant_id": "mrc_XXXX",
+  "amount": 50000,
+  "currency": "INR",
+  "method": "upi",
+  "status": "CREATED",
+  "captured": false,
+  "error_code": null,
+  "error_description": null,
+  "created_at": "2026-01-16T05:08:17.841529Z",
+  "updated_at": null
+}
 
-Payment State Flow
+Payment Capture
+POST /api/v1/payments/{payment_id}/capture
+Headers:
+Idempotency-Key (optional)
 
-processing → success / failed
+Response:
+{
+  "id": "pay_XXXX",
+  "order_id": "order_22hJz371jXdn3yaw",
+  "merchant_id": "mrc_XXXX",
+  "amount": 50000,
+  "currency": "INR",
+  "method": "upi",
+  "status": "SUCCESS",
+  "captured": true,
+  "error_code": null,
+  "error_description": null,
+  "created_at": "2026-01-16T05:08:17.841529Z",
+  "updated_at": "2026-01-16T05:10:00.123456Z"
+}
+------------------------------------------------------------
+🧪 Evaluator Test Endpoints
 
-🌐 Public Checkout APIs (No Auth)
+Enqueue Test Job:
+POST /api/v1/test/jobs/enqueue
 
-Used by the hosted checkout page.
+Check Job Queue Status:
+GET /api/v1/test/jobs/status
 
-GET /api/v1/orders/public/{order_id}
+Capture Payment:
+POST /api/v1/payments/{payment_id}/capture
 
-POST /api/v1/payments/public
+Refund Payment:
+POST /api/v1/payments/{payment_id}/refunds
 
-GET /api/v1/payments/{payment_id}
+------------------------------------------------------------
 
-🧪 Test Mode (Required for Evaluation):
+🔁 Payment State Machine
 
-Configured via environment variables:
+created → processing → success / failed
 
-TEST_MODE=true
-TEST_PAYMENT_SUCCESS=true
-TEST_PROCESSING_DELAY=1000
+Refund State Machine
 
+pending → processed / failed
 
-Ensures deterministic outcomes
-Overrides random success/failure
-Used by automated evaluators
+------------------------------------------------------------
 
-🖥️ Merchant Dashboard (Port 3000):
-Pages:
+🌐 Webhooks
 
-/login
-/dashboard
-/dashboard/transactions
+Events:
+• payment.success
+• payment.failed
+• refund.processed
+• refund.failed
 
-Features:
+Delivery:
+• Signed using HMAC SHA256
+• Header: X-Signature
+• Automatic retries
+• DLQ after max retries
 
-View API credentials
-Total transactions
-Total successful amount
-Success rate
-Real-time data from database
-All required data-test-id attributes are implemented.
+------------------------------------------------------------
 
-🧾 Hosted Checkout Page (Port 3001):
-URL Format
-http://localhost:3001/checkout?order_id=order_xxx
+🧩 Embeddable JavaScript SDK
+
+File:
+frontend/sdk/gateway.js
+
+Usage:
+
+<script src="gateway.js"></script>
+<script>
+  GatewayCheckout.open({
+    amount: 50000,
+    method: "upi",
+    onSuccess: function (payment) {
+      console.log("Payment success:", payment.id);
+    }
+  });
+</script>
+
+------------------------------------------------------------
+
+🧪 Test Mode (Evaluator Friendly)
+
+Environment Variables:
+
+TEST_MODE=true  
+TEST_PROCESSING_DELAY=500  
+
+Ensures deterministic behavior for automated tests.
+
+------------------------------------------------------------
+
+🖥️ Dashboard (3000)
+
+• Login
+• Transaction list
+• Payment analytics
+• Webhook logs
+
+All required data-test-id attributes implemented.
+
+------------------------------------------------------------
+
+🧾 Hosted Checkout Page (3001)
 
 Flow:
+• Fetch order
+• Select payment method
+• Submit payment
+• Poll status
+• Show result
 
-Fetch order details
-Select payment method (UPI / Card)
-Submit payment
-Show processing state
-Poll payment status
-Display success or failure
+------------------------------------------------------------
 
-Fully compliant with required HTML structure and data-test-ids.
+🗄️ Database Schema
 
-🗄️ Database Design:
+Tables:
+• merchants
+• orders
+• payments
+• refunds
+• webhooks
+• webhook_logs
 
-Tables-
-
-merchants
-orders
-payments
-Indexes
-
-orders.merchant_id
-payments.order_id
-payments.status
+Indexes on:
+• merchant_id
+• payment_id
+• status fields
 
 Sensitive card data is never stored.
 
-📄 Environment Configuration:
-
-See .env.example for all required variables:
-
-Database connection
-
-Test merchant credentials
-
-Payment simulation
-
-Test mode overrides
-
-✅ Submission Checklist
-
-✔ Dockerized setup
-
-✔ Auto-seeded test merchant
-
-✔ Correct ID formats (order_, pay_)
-
-✔ Authentication enforced
-
-✔ Payment validations implemented
-
-✔ Dashboard & checkout fully functional
-
-✔ README instructions complete
+------------------------------------------------------------
 
 🏁 Final Notes
 
 This project demonstrates:
-
-Real-world payment gateway architecture
-
-Secure handling of financial flows
-
-End-to-end system design
-
-Production-ready Docker deployment
+• Async-first payment architecture
+• Reliable webhook delivery
+• Idempotent APIs
+• Real-world system design
+• Production-style worker services
 
 video demo:
-
 https://youtu.be/bYjgakEEmzs
