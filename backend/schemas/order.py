@@ -14,9 +14,9 @@ class PublicOrderCreate(BaseModel):
 
 # =========================
 # MERCHANT ORDER SCHEMA
+# (merchant_id REMOVED ✅)
 # =========================
 class OrderCreate(BaseModel):
-    merchant_id: str
     amount: int
     currency: str = "INR"
     receipt: Optional[str] = None

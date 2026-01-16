@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 import random
 import string
+import uuid
 
 from database import get_db
 from models import Order, Merchant
@@ -20,6 +21,11 @@ def generate_order_id() -> str:
         random.choices(string.ascii_letters + string.digits, k=16)
     )
 
+
+def generate_receipt() -> str:
+    return "rcpt_" + uuid.uuid4().hex[:12]
+
+
 # -----------------------------
 # CREATE PUBLIC ORDER
 # -----------------------------
@@ -34,9 +40,8 @@ def create_public_order(
             detail="amount must be at least 100",
         )
 
-    # 🔥 Public flow → pick seeded test merchant
+    # Public checkout → seeded merchant
     merchant = db.query(Merchant).first()
-
     if not merchant:
         raise HTTPException(
             status_code=500,
@@ -48,7 +53,7 @@ def create_public_order(
         merchant_id=merchant.id,
         amount=data.amount,
         currency=data.currency,
-        receipt=data.receipt,
+        receipt=data.receipt or generate_receipt(),  # ✅ FIX
         notes=data.notes,
         status="created",
     )
@@ -59,6 +64,7 @@ def create_public_order(
 
     return order
 
+
 # -----------------------------
 # GET PUBLIC ORDER
 # -----------------------------
@@ -68,7 +74,6 @@ def get_public_order(
     db: Session = Depends(get_db),
 ):
     order = db.query(Order).filter(Order.id == order_id).first()
-
     if not order:
         raise HTTPException(
             status_code=404,
