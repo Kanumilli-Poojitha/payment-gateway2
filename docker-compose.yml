@@ -41,8 +41,9 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://gateway_user:gateway_pass@postgres:5432/payment_gateway
-      REDIS_URL: redis://redis:6379             # Must match Redis service
-      WORKER_QUEUE: gateway_jobs                # Queue name shared with worker
+      REDIS_URL: redis://redis:6379
+      WORKER_QUEUE: gateway_jobs
+      TEST_MODE: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,9 +60,12 @@ services:
     environment:
       DATABASE_URL: postgresql://gateway_user:gateway_pass@postgres:5432/payment_gateway
       REDIS_URL: redis://redis:6379
-      WORKER_QUEUE: gateway_jobs                # Matches API
+      WORKER_QUEUE: gateway_jobs
       DLQ_QUEUE: gateway_jobs_dlq
       WORKER_MAX_RETRIES: 3
+      TEST_MODE: "true"
+      TEST_PROCESSING_DELAY: 1000
+      TEST_PAYMENT_SUCCESS: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -83,7 +87,9 @@ services:
       REDIS_URL: redis://redis:6379
       WEBHOOK_QUEUE: gateway_webhooks
       WEBHOOK_DLQ_QUEUE: gateway_webhooks_dlq
-      WEBHOOK_MAX_RETRIES: 3
+      WEBHOOK_MAX_RETRIES: 5
+      TEST_MODE: "true"
+      WEBHOOK_RETRY_INTERVALS_TEST: "1,2,5"
     depends_on:
       - redis
       - api
@@ -100,6 +106,7 @@ services:
       DATABASE_URL: postgresql://gateway_user:gateway_pass@postgres:5432/payment_gateway
       REDIS_URL: redis://redis:6379
       PROCESSING_THRESHOLD_SEC: 300
+      TEST_MODE: "true"
     depends_on:
       - redis
       - api
@@ -112,6 +119,8 @@ services:
     container_name: gateway_dashboard
     ports:
       - "3000:80"
+    environment:
+      TEST_MODE: "true"
     depends_on:
       - api
     networks:
@@ -123,6 +132,8 @@ services:
     container_name: gateway_checkout
     ports:
       - "3001:80"
+    environment:
+      TEST_MODE: "true"
     depends_on:
       - api
     networks:
@@ -138,6 +149,8 @@ services:
       DATABASE_URL: postgresql://gateway_user:gateway_pass@postgres:5432/payment_gateway
       REDIS_URL: redis://redis:6379
       REFUND_QUEUE: gateway_refunds
+      TEST_MODE: "true"
+      TEST_PROCESSING_DELAY: 500
     depends_on:
       redis:
         condition: service_healthy
