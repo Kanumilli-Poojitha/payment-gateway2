@@ -5,12 +5,13 @@ from datetime import datetime
 
 class WebhookLogResponse(BaseModel):
     id: str
-    webhook_id: str
-    event_type: str
-    status: str
+    merchant_id: Optional[str]
+    event: Optional[str]
+    status: Optional[str]
     attempts: int
-    response_code: Optional[str]
+    response_code: Optional[int]
     response_body: Optional[str]
+    next_retry_at: Optional[datetime]
     created_at: datetime
     updated_at: datetime
 

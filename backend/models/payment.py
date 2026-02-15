@@ -15,8 +15,8 @@ class Payment(Base):
     currency = Column(String, default="INR")
     method = Column(String, nullable=False)
 
-    # CREATED → PROCESSING → SUCCESS / FAILED
-    status = Column(String, nullable=False, default="CREATED")
+    # PENDING (worker processes) → SUCCESS / FAILED
+    status = Column(String, nullable=False, default="pending")
 
     captured = Column(Boolean, nullable=False, default=False)
 

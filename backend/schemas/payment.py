@@ -23,9 +23,9 @@ class CaptureRequest(BaseModel):
 class PaymentResponse(BaseModel):
     id: str
     order_id: str
-    merchant_id: str
+    merchant_id: Optional[str]
     amount: int
-    currency: str
+    currency: Optional[str]
     method: str
     status: str
     captured: bool

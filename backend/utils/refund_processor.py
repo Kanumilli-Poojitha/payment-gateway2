@@ -5,9 +5,9 @@ import json
 import redis
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from datetime import datetime
 
 from models import Refund, Payment, Order
-from utils.errors import not_found
 
 # -----------------------------
 # Config
@@ -40,21 +40,16 @@ def process_refund_job(db: Session, refund_id: str):
     # -----------------------------
     # Simulate async delay
     # -----------------------------
-    time.sleep(TEST_PROCESSING_DELAY_MS / 1000)
-
-    # -----------------------------
-    # Random success/failure for test mode
-    # -----------------------------
-    success = True if DEFAULT_TEST_MODE else random.random() < 0.95
-
-    if success:
-        refund.status = "PROCESSED"
-        # Optional: reduce payment.amount if tracking remaining balance
-        # payment.amount -= refund.amount
+    if DEFAULT_TEST_MODE:
+        time.sleep(TEST_PROCESSING_DELAY_MS / 1000)
     else:
-        refund.status = "FAILED"
-        refund.error_code = "REFUND_FAILED"
-        refund.error_description = "Refund processing failed"
+        time.sleep(random.uniform(3, 5))
+
+    # -----------------------------
+    # Outcome
+    # -----------------------------
+    refund.status = "processed"
+    refund.processed_at = datetime.utcnow()
 
     db.commit()
     db.refresh(refund)
@@ -63,14 +58,23 @@ def process_refund_job(db: Session, refund_id: str):
     # Trigger webhook
     # -----------------------------
     webhook_payload = {
-        "refund_id": refund.id,
-        "payment_id": refund.payment_id,
-        "merchant_id": refund.merchant_id,
-        "amount": refund.amount,
-        "status": refund.status,
-        "reason": refund.reason,
-        "error_code": refund.error_code,
-        "error_description": refund.error_description,
+        "event": "refund.processed",
+        "timestamp": int(time.time()),
+        "data": {
+            "refund": {
+                "id": refund.id,
+                "payment_id": refund.payment_id,
+                "amount": refund.amount,
+                "reason": refund.reason,
+                "status": refund.status,
+                "created_at": refund.created_at.isoformat() if refund.created_at else None,
+                "processed_at": refund.processed_at.isoformat() if refund.processed_at else None,
+            }
+        }
     }
 
-    redis_client.rpush(WEBHOOK_QUEUE, json.dumps(webhook_payload))
+    redis_client.rpush(WEBHOOK_QUEUE, json.dumps({
+        "merchant_id": refund.merchant_id,
+        "event": "refund.processed",
+        "payload": webhook_payload
+    }))

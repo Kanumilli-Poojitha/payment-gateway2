@@ -28,9 +28,9 @@ class OrderCreate(BaseModel):
 # =========================
 class OrderResponse(BaseModel):
     id: str
-    merchant_id: str
+    merchant_id: Optional[str]
     amount: int
-    currency: str
+    currency: Optional[str]
     status: str
     receipt: Optional[str]
     notes: Optional[Dict[str, str]]

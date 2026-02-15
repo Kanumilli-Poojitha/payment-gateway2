@@ -7,7 +7,6 @@ import os
 from database import get_db
 from auth import authenticate
 from models.webhook_log import WebhookLog
-from models.webhook import Webhook
 from schemas.webhook_log import WebhookLogResponse
 from utils.errors import not_found
 
@@ -27,10 +26,10 @@ def list_webhook_logs(
     merchant=Depends(authenticate),
     db: Session = Depends(get_db),
 ):
+
     return (
         db.query(WebhookLog)
-        .join(Webhook, Webhook.id == WebhookLog.webhook_id)
-        .filter(Webhook.merchant_id == merchant.id)
+        .filter(WebhookLog.merchant_id == merchant.id)
         .order_by(WebhookLog.created_at.desc())
         .all()
     )
@@ -47,10 +46,9 @@ def retry_webhook(
 ):
     log = (
         db.query(WebhookLog)
-        .join(Webhook, Webhook.id == WebhookLog.webhook_id)
         .filter(
             WebhookLog.id == log_id,
-            Webhook.merchant_id == merchant.id,
+            WebhookLog.merchant_id == merchant.id,
         )
         .first()
     )
@@ -58,11 +56,15 @@ def retry_webhook(
     if not log:
         not_found("Webhook log not found")
 
-    # Re-enqueue payload
-    redis_client.rpush(QUEUE_NAME, json.dumps(log.payload))
-
-    # Reset status for visibility
+    # Re-enqueue. 
+    # Since we have a retry thread in WebhookWorker that polls 'pending',
+    # we just need to reset the status and next_retry_at.
+    from datetime import datetime
     log.status = "pending"
+    log.next_retry_at = datetime.utcnow()
+    log.attempts = 0 # Reset attempts for a fresh 5-try cycle or just one?
+    # Requirement: "Manual Retry - Re-enqueue webhook delivery job"
+    
     db.commit()
 
-    return {"message": "Webhook retry queued"}
+    return {"message": "Webhook retry scheduled"}

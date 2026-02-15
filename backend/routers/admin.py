@@ -6,7 +6,7 @@ from models.payment import Payment
 from models.reconciliation import PaymentLog
 from models import Webhook, WebhookLog
 from auth import authenticate
-import numpy as np  # for latency percentiles
+import statistics
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -36,8 +36,8 @@ def admin_stats(merchant=Depends(authenticate), db: Session = Depends(get_db)):
     avg_latency = sum(latencies) / len(latencies) if latencies else 0
     min_latency = min(latencies) if latencies else 0
     max_latency = max(latencies) if latencies else 0
-    p50_latency = np.percentile(latencies, 50) if latencies else 0
-    p95_latency = np.percentile(latencies, 95) if latencies else 0
+    p50_latency = statistics.median(latencies) if latencies else 0
+    p95_latency = statistics.quantiles(latencies, n=100)[94] if len(latencies) >= 20 else (max(latencies) if latencies else 0)
 
     # -------------------------
     # WEBHOOKS OVERVIEW

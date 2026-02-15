@@ -8,3 +8,4 @@ class Merchant(Base):
     email = Column(String, unique=True, nullable=False)
     api_key = Column(String, unique=True, nullable=False)
     api_secret = Column(String, nullable=False)
+    webhook_secret = Column(String, nullable=True)

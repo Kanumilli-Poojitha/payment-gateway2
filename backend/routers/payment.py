@@ -30,11 +30,11 @@ def create_payment(
     if idempotency_key:
         cached = get_existing_response(db, merchant.id, idempotency_key, data.dict())
         if cached:
-            return Response(
-            content=json.dumps(cached["body"]),
-            status_code=cached["status_code"],
-            media_type="application/json",
-        )
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                content=cached["body"],
+                status_code=cached["status_code"]
+            )
     order = db.query(Order).filter_by(id=data.order_id).first()
     if not order:
         not_found("Order not found")
@@ -46,7 +46,7 @@ def create_payment(
         amount=order.amount,
         currency=order.currency,
         method=data.method,
-        status="CREATED",
+        status="pending",
         captured=False,
         vpa=data.vpa,
         idempotency_key=idempotency_key,
@@ -58,12 +58,14 @@ def create_payment(
 
     redis_client.rpush(QUEUE_NAME, json.dumps({"payment_id": payment.id}))
 
-    response = PaymentResponse.from_orm(payment).dict()
+    # Prepare response for pydantic validation and saving
+    from schemas import PaymentResponse
+    response_data = PaymentResponse.from_orm(payment).model_dump()
 
     if idempotency_key:
-        save_idempotency_response(db, merchant.id, idempotency_key, data.dict(), response, 201)
+        save_idempotency_response(db, merchant.id, idempotency_key, data.dict(), response_data, 201)
 
-    return response
+    return response_data
 
 
 @router.get("/{payment_id}", response_model=PaymentResponse)
@@ -90,7 +92,8 @@ def capture_payment(
             request_payload={"payment_id": payment_id, **payload.dict()},
         )
         if cached:
-            return cached["body"]
+            from fastapi.responses import JSONResponse
+            return JSONResponse(content=cached["body"], status_code=cached["status_code"])
 
     payment = db.query(Payment).filter_by(
         id=payment_id, merchant_id=merchant.id
@@ -99,7 +102,7 @@ def capture_payment(
     if not payment:
         raise HTTPException(status_code=404, detail="Payment not found")
 
-    if payment.status != "SUCCESS":
+    if payment.status != "success":
         raise HTTPException(status_code=400, detail="Payment not in capturable state")
 
     if payment.captured:

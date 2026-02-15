@@ -65,6 +65,11 @@ def create_public_order(
     return order
 
 
+@router.get("", response_model=list[OrderResponse])
+def list_public_orders(db: Session = Depends(get_db)):
+    return db.query(Order).limit(10).all()
+
+
 # -----------------------------
 # GET PUBLIC ORDER
 # -----------------------------

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from models import IdempotencyKey
 import uuid
 from fastapi import HTTPException
+from fastapi.responses import JSONResponse
 
 IDEMPOTENCY_TTL_HOURS = 24
 
@@ -26,7 +27,7 @@ def get_existing_response(
         db.query(IdempotencyKey)
         .filter(
             IdempotencyKey.merchant_id == merchant_id,
-            IdempotencyKey.idem_key == idem_key,
+            IdempotencyKey.key == idem_key,
             IdempotencyKey.expires_at > datetime.utcnow(),
         )
         .first()
@@ -42,10 +43,7 @@ def get_existing_response(
             detail="Idempotency key reused with different request payload",
         )
 
-    return {
-        "body": json.loads(record.response_body),
-        "status_code": int(record.response_code),
-    }
+    return record.response
 
 
 def save_idempotency_response(
@@ -59,10 +57,12 @@ def save_idempotency_response(
     record = IdempotencyKey(
         id=str(uuid.uuid4()),
         merchant_id=merchant_id,
-        idem_key=idem_key,
+        key=idem_key,
         request_hash=hash_request(request_payload),
-        response_body=json.dumps(response_body, default=str),
-        response_code=str(response_code),
+        response={
+            "body": response_body,
+            "status_code": response_code
+        },
         expires_at=datetime.utcnow() + timedelta(hours=IDEMPOTENCY_TTL_HOURS),
     )
 

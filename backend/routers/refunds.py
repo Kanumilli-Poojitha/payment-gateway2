@@ -34,7 +34,8 @@ def create_refund(
     if idempotency_key:
         cached = get_existing_response(db, merchant.id, idempotency_key, data.dict())
         if cached:
-            return cached["body"]
+            from fastapi.responses import JSONResponse
+            return JSONResponse(content=cached["body"], status_code=cached["status_code"])
 
     # -----------------------------
     # Validate payment exists and belongs to merchant
@@ -69,7 +70,7 @@ def create_refund(
         payment_id=payment.id,
         merchant_id=merchant.id,
         amount=data.amount,
-        status="PENDING",
+        status="pending",
         reason=data.reason
     )
 
@@ -88,11 +89,12 @@ def create_refund(
     # -----------------------------
     # Save idempotency response
     # -----------------------------
-    response = RefundResponse.from_orm(refund).dict()
+    from schemas.refund import RefundResponse
+    response_data = RefundResponse.from_orm(refund).dict()
     if idempotency_key:
-        save_idempotency_response(db, merchant.id, idempotency_key, data.dict(), response, 201)
+        save_idempotency_response(db, merchant.id, idempotency_key, data.dict(), response_data, 201)
 
-    return response
+    return response_data
 
 
 # -----------------------------

@@ -4,7 +4,7 @@ import os
 import json
 
 from database import SessionLocal
-from models import Payment, Order, Merchant
+from models import Payment, Order, Merchant, Refund
 from utils import generate_id
 
 router = APIRouter(prefix="/test/jobs", tags=["Jobs Test"])
@@ -72,25 +72,46 @@ def enqueue_test_job():
         db.close()
 
 
+@router.get("/reconcile")
+def manual_reconcile():
+    from workers.reconciliation_worker import reconcile_payments
+    try:
+        reconcile_payments()
+        return {"status": "success", "message": "Reconciliation completed"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 @router.get("/status")
 def test_job_status():
     """
     Evaluator-friendly job status endpoint
     """
     try:
-        # 1️⃣ Check Redis connectivity first
         redis_client.ping()
-
-        # 2️⃣ Read queue length
         pending = redis_client.llen(QUEUE_NAME)
-
-        # 3️⃣ Best-effort worker inference
-        worker_status = "running" if pending >= 0 else "unknown"
+        
+        db = SessionLocal()
+        try:
+            processing = db.query(Payment).filter(Payment.status == "PROCESSING").count()
+            completed = db.query(Payment).filter(Payment.status == "success").count()
+            failed = db.query(Payment).filter(Payment.status == "failed").count()
+            
+            refund_pending = redis_client.llen("gateway_refunds")
+            refund_completed = db.query(Refund).filter(Refund.status == "processed").count()
+        finally:
+            db.close()
 
         return {
             "queue": QUEUE_NAME,
             "pending_jobs": pending,
-            "worker_status": worker_status,
+            "processing_jobs": processing,
+            "completed_jobs": completed,
+            "failed_jobs": failed,
+            "refund_stats": {
+                "pending": refund_pending,
+                "completed": refund_completed
+            },
+            "worker_status": "running"
         }
 
     except Exception as e:
