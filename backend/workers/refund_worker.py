@@ -48,4 +48,9 @@ def worker_loop():
 
 
 if __name__ == "__main__":
+    try:
+        from migrate import migrate
+        migrate()
+    except Exception:
+        pass
     worker_loop()

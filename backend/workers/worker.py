@@ -16,6 +16,8 @@ WEBHOOK_QUEUE = os.getenv("WEBHOOK_QUEUE", "gateway_webhooks")
 
 MAX_RETRIES = int(os.getenv("WORKER_MAX_RETRIES", "3"))
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
+TEST_PROCESSING_DELAY = int(os.getenv("TEST_PROCESSING_DELAY", "1000"))
+TEST_PAYMENT_SUCCESS = os.getenv("TEST_PAYMENT_SUCCESS", "true").lower() == "true"
 
 redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 running = True
@@ -48,32 +50,60 @@ def process_payment(payment_id: str) -> bool:
         db.commit()
         print(f"⚙️ Processing payment {payment.id}")
 
-        time.sleep(2)
+        # -----------------------------
+        # Delay
+        # -----------------------------
+        if TEST_MODE:
+            time.sleep(TEST_PROCESSING_DELAY / 1000)
+        else:
+            time.sleep(random.uniform(5, 10))
 
-        success = True if TEST_MODE else random.random() < 0.9
+        # -----------------------------
+        # Outcome
+        # -----------------------------
+        if TEST_MODE:
+            success = TEST_PAYMENT_SUCCESS
+        else:
+            rate = 0.90 if payment.method == "upi" else 0.95
+            success = random.random() < rate
 
         if success:
-            payment.status = "SUCCESS"
-            order.status = "PAID"
+            payment.status = "success" # requirement says success/failed lowercase
+            order.status = "paid"
             print(f"✅ Payment {payment.id} SUCCESS")
         else:
-            payment.status = "FAILED"
+            payment.status = "failed"
             payment.error_code = "PAYMENT_FAILED"
             payment.error_description = "Authorization failed"
-            order.status = "FAILED"
+            order.status = "failed"
             print(f"❌ Payment {payment.id} FAILED")
 
         db.commit()
 
-        # enqueue webhook (FINAL STATE ONLY)
+        # -----------------------------
+        # Enqueue Webhook
+        # -----------------------------
+        webhook_payload = {
+            "event": f"payment.{payment.status}",
+            "timestamp": int(time.time()),
+            "data": {
+                "payment": {
+                    "id": payment.id,
+                    "order_id": payment.order_id,
+                    "amount": payment.amount,
+                    "currency": payment.currency,
+                    "method": payment.method,
+                    "vpa": payment.vpa,
+                    "status": payment.status,
+                    "created_at": payment.created_at.isoformat() if payment.created_at else None,
+                }
+            }
+        }
+
         redis_client.rpush(WEBHOOK_QUEUE, json.dumps({
-            "payment_id": payment.id,
-            "event_type": f"payment.{payment.status.lower()}",
-            "amount": payment.amount,
-            "currency": payment.currency,
-            "method": payment.method,
-            "order_id": payment.order_id,
             "merchant_id": payment.merchant_id,
+            "event": f"payment.{payment.status}",
+            "payload": webhook_payload
         }))
 
         return success
@@ -116,4 +146,6 @@ def worker_loop():
 
 
 if __name__ == "__main__":
+    from migrate import migrate
+    migrate()
     worker_loop()

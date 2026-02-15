@@ -72,4 +72,12 @@ def worker_loop():
         time.sleep(60)
 
 if __name__ == "__main__":
+    try:
+        import sys
+        import os
+        sys.path.append(os.getcwd())
+        from migrate import migrate
+        migrate()
+    except Exception:
+        pass
     worker_loop()
